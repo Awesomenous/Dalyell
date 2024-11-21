@@ -1,0 +1,399 @@
+---
+title: "Figures for Report"
+format: html
+editor: visual
+---
+
+```{r}
+# Load required packages
+library(tidyverse)
+library(SpatialExperiment)
+library(dittoSeq)
+library(viridis)
+library(RColorBrewer)
+library(scater)
+library(cowplot)
+library(emmeans)
+library(FNN) 
+
+# Load in data
+spe_subset = readRDS("speSubset.rds")
+```
+
+```{r Figure 1A}
+# T cell heatmap
+spe_subsetT = spe_subset[, spe_subset$celltype %in% df$x[df$y == "T"]]
+spe_subsetT$celltype = droplevels(spe_subsetT$celltype)
+
+cur_cells = sample(seq_len(ncol(spe_subsetT)), 20000)
+plot_T = dittoHeatmap(spe_subsetT[, cur_cells], 
+             genes = c("CD3", "CD8", "CD4", "FOXP3", "Ki67"),
+             assay = "norm_exprs", scale = "none",
+             heatmap.colors = viridis(100), 
+             cluster_rows = FALSE,
+             annot.by = c("celltype"),
+             annot.colors = c(dittoColors(1)[7:10]))
+
+# B cell heatmap
+spe_subsetB = spe_subset[, spe_subset$celltype %in% df$x[df$y == "B"]]
+spe_subsetB$celltype = droplevels(spe_subsetB$celltype)
+spe_subsetB$celltype = factor(spe_subsetB$celltype, levels = c("B cell", "MZB", "Cycling B", "GC B"))
+
+cur_cells = sample(seq_len(ncol(spe_subsetB)), 24000)
+plot_B = dittoHeatmap(spe_subsetB[, cur_cells], 
+             genes = c("CD20", "CD38", "Ki67", "CD1c", "CD69", "HLADR"),
+             assay = "norm_exprs", scale = "none",
+             heatmap.colors = viridis(100), 
+             cluster_rows = FALSE,
+             annot.by = c("celltype"),
+             annot.colors = c(dittoColors(7)[11:14]))
+
+# MNP heatmap
+spe_subsetMNP = spe_subset[, spe_subset$celltype %in% df$x[df$y == "MNP"]]
+spe_subsetMNP$celltype = droplevels(spe_subsetMNP$celltype)
+spe_subsetMNP$celltype = factor(spe_subsetMNP$celltype, levels = c("Macrophage", "pDC", "Lang- cDC2", "Lang+ cDC2", "DC3"))
+
+cur_cells = sample(seq_len(ncol(spe_subsetMNP)), 2500)
+plot_MNP = dittoHeatmap(spe_subsetMNP[, cur_cells], 
+             genes = c("HLADR", "CD1c", "Langerin", "CD11c", "CD303", "CD14", "CD163", "FXIIIa", "Siglec1", "CD11b"),
+             assay = "norm_exprs", scale = "none",
+             heatmap.colors = viridis(100), 
+             cluster_rows = FALSE,
+             annot.by = c("celltype"),
+             annot.colors = c(dittoColors(1)[1:5]))
+```
+
+```{r Figure 1C, fig.height=5, fig.width=8}
+df = data.frame(
+  x = unique(spe_subset$celltype),
+  y = c("T", "MNP", "T", "T", "MNP", "B", "T", "MNP", "MNP", "B", "B", "MNP", "B")
+)
+
+spe_subsetMNP = spe_subset[, spe_subset$celltype %in% df$x[df$y == "MNP"]]
+spe_subsetMNP$celltype = droplevels(spe_subsetMNP$celltype)
+spe_subsetMNP$to_cluster = "Y"
+
+spe_subsetMNP = runUMAP(spe_subsetMNP, exprs_values = "scaled_exprs")
+options(ggrepel.max.overlaps = Inf)
+dittoDimPlot(spe_subsetMNP, var = "celltype",
+             reduction.use = "UMAP", size = 1.5,
+             do.label = FALSE, labels.size = 2.5,
+             legend.show = TRUE) +
+  labs(title = "") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 18))
+```
+
+```{r Figure 2A, fig.height=4, fig.width=8}
+spe_subset %>%
+  colData() %>%
+  as.data.frame() %>%
+  group_by(imShort) %>%
+  summarise(diameter = max(LAInnerDist) * 2) %>%
+  ggplot(aes(x = diameter, y = 1)) +  
+  geom_boxplot(fill = "deepskyblue") +
+  geom_jitter(height = 0.2) +  
+  labs(x = "Diameter of Lymphoid Aggregate (pixels)", y = "") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 18)) +
+  xlim(0, 650)
+```
+
+```{r Figure 2B, fig.height=7, fig.width=5}
+dist_df = colData(spe_subset) %>%
+  as.data.frame() %>%
+  group_by(imShort) %>%
+  summarise(
+    max_LAInnerDist = max(LAInnerDist),
+    max_bloodVesselDist = max(bloodVesselDist)
+  )
+
+plot_df = spe_subset %>%
+  colData() %>%
+  as.data.frame() %>%
+  drop_na() %>%
+  dplyr::filter(Condition == "ori") %>%
+  left_join(dist_df, by = "imShort") %>%
+  mutate(
+    LAInnerDist_std = LAInnerDist/max_LAInnerDist,
+    bloodVesselDist_std = bloodVesselDist/max_bloodVesselDist
+  ) %>%
+  left_join(dplyr::rename(df, celltype=x, broad_type=y), by="celltype") 
+
+plot_df %>%
+  mutate(broad_type = case_when(
+    broad_type == "B" ~ "B cell",
+    broad_type == "T" ~ "T cell",
+    TRUE ~ broad_type
+  )) %>%
+  mutate(broad_type = factor(broad_type, levels = c("B cell", "T cell", "MNP"))) %>%
+  group_by(broad_type) %>%
+  summarise(mean = mean(LAInnerDist_std), sem = sd(LAInnerDist_std)/sqrt(n())) %>%
+  ggplot(aes(x = broad_type, y = mean, fill = broad_type)) +  
+    geom_bar(stat = "identity", colour = "black") +
+    geom_errorbar(aes(x=broad_type, ymin=(mean - 2.5*sem), ymax=(mean + 2.5*sem)), width=0.4) +
+    theme_bw() +
+    labs(x = "Cell Type", y = "Mean Standardised Distance from LA Edge") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+    scale_fill_manual(values = c("orange", "dodgerblue", "darkolivegreen4")) +
+    theme(text = element_text(size = 18)) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+anova = aov(LAInnerDist_std ~ broad_type, data = plot_df)
+summary(anova)
+em = emmeans(anova, ~ broad_type)
+contrast(em, method = "pairwise", adjust = "tukey")
+```
+
+```{r Figure 2C, fig.height=8, fig.width=6}
+spe_subset %>%
+  colData() %>%
+  as.data.frame() %>%
+  drop_na() %>%
+  dplyr::filter(Condition == "ori") %>%
+  left_join(dist_df, by = "imShort") %>%
+  mutate(
+    LAInnerDist_std = LAInnerDist/max_LAInnerDist,
+    bloodVesselDist_std = bloodVesselDist/max_bloodVesselDist
+  ) %>%
+  mutate(celltype = case_when(
+    celltype %in% c("B cell", "GC B", "Cycling B", "MZB") ~ "B cell",
+    celltype %in% c("CD4+ T", "CD8+ T", "Cycling T", "Treg") ~ "T cell",
+    TRUE ~ celltype
+  )) %>%
+  dplyr::filter(celltype != "B cell" & celltype != "T cell") %>%
+  mutate(celltype = factor(celltype, levels = c("Macrophage", "pDC", "Lang- cDC2", "Lang+ cDC2", "DC3"))) %>%
+  group_by(celltype) %>%
+  summarise(mean = mean(LAInnerDist_std), sem = sd(LAInnerDist_std)/sqrt(n())) %>%
+  ggplot(aes(x = celltype, y = mean, fill = celltype)) +  
+    geom_bar(stat = "identity", colour = "black") +
+    geom_errorbar(aes(x=celltype, ymin=(mean - sem), ymax=(mean + sem)), width=0.4) +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
+    labs(x = "Cell Type", y = "Mean Standardised Distance from LA Edge") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+    scale_fill_manual(values = c("#e69e00", "#56b4e8", "#019e73", "#f0e442", "#0072b1")) +
+    theme(text = element_text(size = 18)) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+plot_df = spe_subsetMNP %>%
+  colData() %>%
+  as.data.frame() %>%
+  drop_na() %>%
+  dplyr::filter(Condition == "ori") %>%
+  left_join(dist_df, by = "imShort") %>%
+  mutate(
+    LAInnerDist_std = LAInnerDist/max_LAInnerDist,
+    bloodVesselDist_std = bloodVesselDist/max_bloodVesselDist
+  ) 
+
+kruskal.test(LAInnerDist_std ~ celltype, data = plot_df)
+pairwise.wilcox.test(
+  plot_df$LAInnerDist_std,
+  plot_df$celltype,
+  p.adjust.method = "bonferroni",
+  exact = FALSE
+) %>%
+  broom::tidy() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.0001 ~ "****",
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    )
+  )
+```
+
+```{r Figure 3A, fig.width=9, fig.height=7}
+plot_df = spe_subset %>%
+  colData() %>%
+  as.data.frame() %>%
+  left_join(dist_df, by = "imShort") %>%
+  mutate(
+    LAInnerDist_std = LAInnerDist/max_LAInnerDist,
+    bloodVesselDist_std = bloodVesselDist/max_bloodVesselDist
+  ) %>%
+  left_join(dplyr::rename(df, celltype=x, broad_type=y), by="celltype")
+
+
+cell_metadata = plot_df %>%
+  select(Condition, imShort, broad_type)
+
+coords = spatialCoords(spe_subset)
+
+cell_data = cbind(cell_metadata, coords) %>%
+  dplyr::filter(Condition == "ori")
+
+all_results = list()
+for (img in unique(cell_data$imShort)) {
+  temp_df = cell_data %>%
+    dplyr::filter(imShort == img)
+  coords = cbind(temp_df$X, temp_df$Y)
+  nn_index = get.knn(coords, k = 20)$nn.index
+  neighbor_summary = apply(nn_index, 1, function(neighbors) {
+    neighbor_types = temp_df$broad_type[neighbors]
+    tibble(
+      T_count = sum(neighbor_types == "T"),
+      B_count = sum(neighbor_types == "B"),
+      MNP_count = sum(neighbor_types == "MNP")
+    )
+  })
+  final_df = bind_rows(neighbor_summary)
+  final_df$imShort = temp_df$imShort
+  final_df$broad_type = temp_df$broad_type
+  final_df = final_df %>%
+    group_by(broad_type) %>%
+    summarise(
+      mean_T = mean(T_count),
+      mean_B = mean(B_count),
+      mean_MNP = mean(MNP_count)
+    ) %>%
+    mutate(imShort = img)
+  all_results[[img]] = final_df
+}
+combined_results = bind_rows(all_results)
+
+df_means = combined_results %>%
+  drop_na() %>%
+  group_by(broad_type) %>%
+  summarise(
+    T_cell = mean(mean_T),
+    B_cell = mean(mean_B),
+    MNP = mean(mean_MNP)
+  ) %>%
+  pivot_longer(cols = c(T_cell, B_cell, MNP), names_to = "cell_type", values_to = "mean_count")
+
+combined_results %>%
+  drop_na() %>%
+  group_by(broad_type) %>%
+  summarise(
+    T_cell = sd(mean_T)/sqrt(n()),
+    B_cell = sd(mean_B)/sqrt(n()),
+    MNP = sd(mean_MNP)/sqrt(n())
+  ) %>%
+  pivot_longer(cols = c(T_cell, B_cell, MNP), names_to = "cell_type", values_to = "sem") %>%
+  left_join(df_means, by = join_by(broad_type, cell_type)) %>%
+  mutate(broad_type = case_when(
+    broad_type == "B" ~ "B cell",
+    broad_type == "T" ~ "T cell",
+    TRUE ~ "MNP"
+  )) %>%
+  mutate(cell_type = case_when(
+    cell_type == "B_cell" ~ "B cell",
+    cell_type == "T_cell" ~ "T cell",
+    TRUE ~ "MNP"
+  )) %>%
+  ggplot(aes(x = cell_type, y = mean_count / 20 * 100, fill = cell_type)) +  
+    geom_bar(stat = "identity", colour = "black") +
+    geom_errorbar(aes(x=cell_type, ymin=(mean_count - sem) / 20 * 100, ymax=(mean_count + sem) / 20 * 100), width=0.4) +
+    facet_wrap(~ broad_type) +
+    labs(x = "Cell Type", y = "Percentage of 20 Nearest Neighbors (%)") +
+    theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+    scale_fill_manual(values = c("orange", "darkolivegreen4", "dodgerblue")) +
+    theme(text = element_text(size = 18)) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+summary_df = combined_results %>%
+  dplyr::filter(broad_type == "T") %>%
+  select(imShort, mean_T, mean_B, mean_MNP) %>%
+  pivot_longer(cols = c(mean_T, mean_B, mean_MNP)) 
+
+anova = aov(value ~ name, data = summary_df)
+summary(anova)
+em = emmeans(anova, ~ name)
+contrast(em, method = "pairwise", adjust = "tukey") 
+```
+
+```{r Figure 4A, fig.height=7, fig.width=8}
+new_df = spe_subsetMNP %>%
+  colData() %>%
+  as.data.frame() %>%
+  drop_na() %>%
+  mutate(
+    hiv_condition = case_when(
+      hivCount == 0 ~ "Negative",
+      TRUE ~ "Positive"
+    ),
+    new_condition = case_when(
+      Condition == "ori" ~ "Ori",
+      TRUE ~ "HIV"
+    )
+  ) %>%
+  left_join(dist_df, by = "imShort") %>%
+  mutate(
+    LAInnerDist_std = LAInnerDist/max_LAInnerDist,
+    bloodVesselDist_std = bloodVesselDist/max_bloodVesselDist
+  ) 
+
+new_df %>%
+  group_by(celltype, hiv_condition) %>%
+  summarise(count = n(), mean = mean(LAInnerDist_std), sem = sd(LAInnerDist_std) / sqrt(n()), .groups = "drop") %>%
+  arrange(celltype) %>%
+  dplyr::filter(celltype %in% c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage")) %>%
+  ggplot(aes(x = celltype, y = mean, fill = hiv_condition)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9), colour = "black") +
+    geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), 
+                  position = position_dodge(width = 0.9), width = 0.3) +
+    scale_fill_manual(values = c("lightgrey", "red")) +
+    theme_bw() +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    labs(x = "Cell Type", y = "Mean Standardised Distance from LA Edge", fill = "Cell HIV\nStatus") +
+    theme(text = element_text(size = 18)) 
+
+new_df %>%
+  dplyr::filter(celltype %in% c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage")) %>%
+  group_by(celltype) %>%
+  do(broom::tidy(wilcox.test(LAInnerDist_std ~ hiv_condition, data = ., exact = TRUE))) %>%
+  ungroup() %>%
+  mutate(
+    p.value_corrected = p.value * 4,
+    p.value_corrected = ifelse(p.value_corrected > 1, 1, p.value_corrected) 
+  )
+```
+
+```{r Figure 4B, fig.height=5.5, fig.width=6.5}
+plot_df = spe_subset %>% 
+  colData() %>% 
+  as.data.frame() %>%
+  dplyr::filter(celltype %in% c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage"))  %>%
+  mutate(
+    hiv_condition = case_when(
+      hivCount == 0 ~ "neg",
+      TRUE ~ "pos"
+    ),
+    img_condition = case_when(
+      Condition == "ori" ~ "ori",
+      TRUE ~ "hiv"
+    )
+  ) %>%
+  dplyr::filter(img_condition == "hiv") %>%
+  group_by(imShort, celltype, hiv_condition) %>%
+  summarise(sum = n(), .groups = "drop") %>%
+  pivot_wider(names_from = hiv_condition, values_from = sum, values_fill = list(sum = 0)) %>%
+  mutate(
+    total_cells = pos + neg,
+    proportion_hiv_positive = ifelse(total_cells > 0, pos / total_cells, 0)*100
+  ) 
+
+plot_df %>%
+  group_by(celltype) %>%
+  summarise(mean = mean(proportion_hiv_positive), sem = sd(proportion_hiv_positive)/sqrt(n())) %>%
+  mutate(celltype = factor(celltype, levels = c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage"))) %>%
+  ggplot(aes(x=celltype, y=mean, fill=celltype)) +
+    geom_bar(stat = "identity", colour = "black") +
+    geom_errorbar(aes(x=celltype, ymin=(mean - sem), ymax=(mean + sem), width=0.4)) +
+    theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    labs(x = "Cell Type", y = "Percentage of Cells Carrying HIV (%)") +
+    theme(text = element_text(size = 14)) 
+
+kruskal.test(proportion_hiv_positive ~ celltype, data = plot_df)
+```
