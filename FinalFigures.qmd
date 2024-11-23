@@ -432,3 +432,7 @@ kruskal.test(proportion_hiv_positive ~ celltype, data = plot_df)
 
 ggsave("FinalFigures/MNPProportion.svg")
 ```
+
+```{r}
+sessionInfo()
+```
