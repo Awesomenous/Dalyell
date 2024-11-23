@@ -20,19 +20,20 @@ library(FNN)
 spe_subset = readRDS("speSubset.rds")
 ```
 
-```{r Figure 1A}
+```{r Figures 6A 11A-B}
 # T cell heatmap
 spe_subsetT = spe_subset[, spe_subset$celltype %in% df$x[df$y == "T"]]
 spe_subsetT$celltype = droplevels(spe_subsetT$celltype)
 
 cur_cells = sample(seq_len(ncol(spe_subsetT)), 20000)
 plot_T = dittoHeatmap(spe_subsetT[, cur_cells], 
-             genes = c("CD3", "CD8", "CD4", "FOXP3", "Ki67"),
+             genes = c("CD3", "CD8", "CD4", "CD45RO", "FOXP3", "Ki67"),
              assay = "norm_exprs", scale = "none",
              heatmap.colors = viridis(100), 
              cluster_rows = FALSE,
              annot.by = c("celltype"),
              annot.colors = c(dittoColors(1)[7:10]))
+ggsave("FinalFigures/T.png", plot_T, width = 10, height = 6, dpi=300)
 
 # B cell heatmap
 spe_subsetB = spe_subset[, spe_subset$celltype %in% df$x[df$y == "B"]]
@@ -47,6 +48,7 @@ plot_B = dittoHeatmap(spe_subsetB[, cur_cells],
              cluster_rows = FALSE,
              annot.by = c("celltype"),
              annot.colors = c(dittoColors(7)[11:14]))
+ggsave("FinalFigures/B.png", plot_B, width = 10, height = 6, dpi=300)
 
 # MNP heatmap
 spe_subsetMNP = spe_subset[, spe_subset$celltype %in% df$x[df$y == "MNP"]]
@@ -55,15 +57,16 @@ spe_subsetMNP$celltype = factor(spe_subsetMNP$celltype, levels = c("Macrophage",
 
 cur_cells = sample(seq_len(ncol(spe_subsetMNP)), 2500)
 plot_MNP = dittoHeatmap(spe_subsetMNP[, cur_cells], 
-             genes = c("HLADR", "CD1c", "Langerin", "CD11c", "CD303", "CD14", "CD163", "FXIIIa", "Siglec1", "CD11b"),
+             genes = c("HLADR", "CD1c", "Langerin", "CD11c", "CD303", "CD14", "CD163", "FXIIIa"),
              assay = "norm_exprs", scale = "none",
              heatmap.colors = viridis(100), 
              cluster_rows = FALSE,
              annot.by = c("celltype"),
              annot.colors = c(dittoColors(1)[1:5]))
+ggsave("FinalFigures/MNP.png", plot_MNP, width = 10, height = 6, dpi=300)
 ```
 
-```{r Figure 1C, fig.height=5, fig.width=8}
+```{r Figure 6B, fig.height=5, fig.width=8}
 df = data.frame(
   x = unique(spe_subset$celltype),
   y = c("T", "MNP", "T", "T", "MNP", "B", "T", "MNP", "MNP", "B", "B", "MNP", "B")
@@ -71,6 +74,7 @@ df = data.frame(
 
 spe_subsetMNP = spe_subset[, spe_subset$celltype %in% df$x[df$y == "MNP"]]
 spe_subsetMNP$celltype = droplevels(spe_subsetMNP$celltype)
+spe_subsetMNP$celltype = factor(spe_subsetMNP$celltype, levels = c("Macrophage", "pDC", "Lang- cDC2", "Lang+ cDC2", "DC3"))
 spe_subsetMNP$to_cluster = "Y"
 
 spe_subsetMNP = runUMAP(spe_subsetMNP, exprs_values = "scaled_exprs")
@@ -82,25 +86,28 @@ dittoDimPlot(spe_subsetMNP, var = "celltype",
   labs(title = "") +
   theme(plot.title = element_text(hjust = 0.5)) +
   theme(text = element_text(size = 18))
+ggsave("FinalFigures/UMAP.svg")
 ```
 
-```{r Figure 2A, fig.height=4, fig.width=8}
+```{r Figure 7A, fig.height=3, fig.width=10}
 spe_subset %>%
   colData() %>%
   as.data.frame() %>%
   group_by(imShort) %>%
   summarise(diameter = max(LAInnerDist) * 2) %>%
   ggplot(aes(x = diameter, y = 1)) +  
-  geom_boxplot(fill = "deepskyblue") +
-  geom_jitter(height = 0.2) +  
-  labs(x = "Diameter of Lymphoid Aggregate (pixels)", y = "") +
-  theme_bw() +
-  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), plot.title = element_text(hjust = 0.5)) +
-  theme(text = element_text(size = 18)) +
-  xlim(0, 650)
+    stat_boxplot(geom = "errorbar", width = 0.5) + 
+    geom_boxplot(fill = "deepskyblue") +
+    geom_jitter(height = 0.2, size = 2) +  
+    labs(x = "Diameter of Lymphoid Aggregate (pixels)", y = "") +
+    theme_bw() +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), plot.title = element_text(hjust = 0.5)) +
+    theme(text = element_text(size = 18)) +
+    xlim(0, 650)
+ggsave("FinalFigures/BoxPlot.svg")
 ```
 
-```{r Figure 2B, fig.height=7, fig.width=5}
+```{r Figure 7B, fig.height=8, fig.width=5}
 dist_df = colData(spe_subset) %>%
   as.data.frame() %>%
   group_by(imShort) %>%
@@ -127,19 +134,20 @@ plot_df %>%
     broad_type == "T" ~ "T cell",
     TRUE ~ broad_type
   )) %>%
-  mutate(broad_type = factor(broad_type, levels = c("B cell", "T cell", "MNP"))) %>%
+  mutate(broad_type = factor(broad_type, levels = c("B cell", "MNP", "T cell"))) %>%
   group_by(broad_type) %>%
   summarise(mean = mean(LAInnerDist_std), sem = sd(LAInnerDist_std)/sqrt(n())) %>%
   ggplot(aes(x = broad_type, y = mean, fill = broad_type)) +  
     geom_bar(stat = "identity", colour = "black") +
-    geom_errorbar(aes(x=broad_type, ymin=(mean - 2.5*sem), ymax=(mean + 2.5*sem)), width=0.4) +
+    geom_errorbar(aes(x=broad_type, ymin=(mean - sem), ymax=(mean + sem)), width=0.4) +
     theme_bw() +
     labs(x = "Cell Type", y = "Mean Standardised Distance from LA Edge") +
     theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
     scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
-    scale_fill_manual(values = c("orange", "dodgerblue", "darkolivegreen4")) +
+    scale_fill_manual(values = c("orange", "darkolivegreen4", "dodgerblue")) +
     theme(text = element_text(size = 18)) +
     theme(axis.text.x = element_text(angle = 45, hjust=1))
+ggsave("FinalFigures/BroadDist.svg")
 
 anova = aov(LAInnerDist_std ~ broad_type, data = plot_df)
 summary(anova)
@@ -147,7 +155,7 @@ em = emmeans(anova, ~ broad_type)
 contrast(em, method = "pairwise", adjust = "tukey")
 ```
 
-```{r Figure 2C, fig.height=8, fig.width=6}
+```{r Figure 7C, fig.height=8, fig.width=7}
 spe_subset %>%
   colData() %>%
   as.data.frame() %>%
@@ -177,6 +185,7 @@ spe_subset %>%
     scale_fill_manual(values = c("#e69e00", "#56b4e8", "#019e73", "#f0e442", "#0072b1")) +
     theme(text = element_text(size = 18)) +
     theme(axis.text.x = element_text(angle = 45, hjust=1))
+ggsave("FinalFigures/MNPDist.svg")
 
 plot_df = spe_subsetMNP %>%
   colData() %>%
@@ -189,14 +198,11 @@ plot_df = spe_subsetMNP %>%
     bloodVesselDist_std = bloodVesselDist/max_bloodVesselDist
   ) 
 
-kruskal.test(LAInnerDist_std ~ celltype, data = plot_df)
-pairwise.wilcox.test(
-  plot_df$LAInnerDist_std,
-  plot_df$celltype,
-  p.adjust.method = "bonferroni",
-  exact = FALSE
-) %>%
-  broom::tidy() %>%
+anova = aov(LAInnerDist_std ~ celltype, data = plot_df)
+summary(anova)
+em = emmeans(anova, ~ celltype)
+contrast(em, method = "pairwise", adjust = "tukey") %>%
+  as.data.frame() %>%
   mutate(
     significance = case_when(
       p.value < 0.0001 ~ "****",
@@ -208,7 +214,7 @@ pairwise.wilcox.test(
   )
 ```
 
-```{r Figure 3A, fig.width=9, fig.height=7}
+```{r Figure 8A, fig.width=9, fig.height=7}
 plot_df = spe_subset %>%
   colData() %>%
   as.data.frame() %>%
@@ -299,18 +305,40 @@ combined_results %>%
     theme(text = element_text(size = 18)) +
     theme(axis.text.x = element_text(angle = 45, hjust=1))
 
-summary_df = combined_results %>%
-  dplyr::filter(broad_type == "T") %>%
-  select(imShort, mean_T, mean_B, mean_MNP) %>%
-  pivot_longer(cols = c(mean_T, mean_B, mean_MNP)) 
-
-anova = aov(value ~ name, data = summary_df)
+print("------ B cells ------")
+B_subset = combined_results %>%
+  dplyr::filter(broad_type == "B") %>%
+  select(-imShort) %>%
+  pivot_longer(cols = c("mean_T", "mean_B", "mean_MNP"))
+anova = aov(value ~ name, data = B_subset)
 summary(anova)
 em = emmeans(anova, ~ name)
 contrast(em, method = "pairwise", adjust = "tukey") 
+
+print("------ MNPs ------")
+MNP_subset = combined_results %>%
+  dplyr::filter(broad_type == "MNP") %>%
+  select(-imShort) %>%
+  pivot_longer(cols = c("mean_T", "mean_B", "mean_MNP"))
+anova = aov(value ~ name, data = MNP_subset)
+summary(anova)
+em = emmeans(anova, ~ name)
+contrast(em, method = "pairwise", adjust = "tukey") 
+
+print("------ T cells ------")
+T_subset = combined_results %>%
+  dplyr::filter(broad_type == "T") %>%
+  select(-imShort) %>%
+  pivot_longer(cols = c("mean_T", "mean_B", "mean_MNP"))
+anova = aov(value ~ name, data = T_subset)
+summary(anova)
+em = emmeans(anova, ~ name)
+contrast(em, method = "pairwise", adjust = "tukey") 
+
+ggsave("FinalFigures/Cluster.svg")
 ```
 
-```{r Figure 4A, fig.height=7, fig.width=8}
+```{r Figure 9A, fig.height=7, fig.width=9}
 new_df = spe_subsetMNP %>%
   colData() %>%
   as.data.frame() %>%
@@ -336,6 +364,7 @@ new_df %>%
   summarise(count = n(), mean = mean(LAInnerDist_std), sem = sd(LAInnerDist_std) / sqrt(n()), .groups = "drop") %>%
   arrange(celltype) %>%
   dplyr::filter(celltype %in% c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage")) %>%
+  mutate(celltype = factor(celltype, levels = c("Macrophage", "Lang- cDC2", "Lang+ cDC2", "DC3"))) %>%
   ggplot(aes(x = celltype, y = mean, fill = hiv_condition)) +
     geom_bar(stat = "identity", position = position_dodge(width = 0.9), colour = "black") +
     geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), 
@@ -348,7 +377,7 @@ new_df %>%
     theme(text = element_text(size = 18)) 
 
 new_df %>%
-  dplyr::filter(celltype %in% c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage")) %>%
+  dplyr::filter(celltype %in% c("Macrophage", "Lang- cDC2", "Lang+ cDC2", "DC3")) %>%
   group_by(celltype) %>%
   do(broom::tidy(wilcox.test(LAInnerDist_std ~ hiv_condition, data = ., exact = TRUE))) %>%
   ungroup() %>%
@@ -356,9 +385,11 @@ new_df %>%
     p.value_corrected = p.value * 4,
     p.value_corrected = ifelse(p.value_corrected > 1, 1, p.value_corrected) 
   )
+
+ggsave("FinalFigures/MNPHIV.svg")
 ```
 
-```{r Figure 4B, fig.height=5.5, fig.width=6.5}
+```{r Figure 9C, fig.height=6.5, fig.width=4.5}
 plot_df = spe_subset %>% 
   colData() %>% 
   as.data.frame() %>%
@@ -385,7 +416,7 @@ plot_df = spe_subset %>%
 plot_df %>%
   group_by(celltype) %>%
   summarise(mean = mean(proportion_hiv_positive), sem = sd(proportion_hiv_positive)/sqrt(n())) %>%
-  mutate(celltype = factor(celltype, levels = c("Lang- cDC2", "Lang+ cDC2", "DC3", "Macrophage"))) %>%
+  mutate(celltype = factor(celltype, levels = c("Macrophage", "Lang- cDC2", "Lang+ cDC2", "DC3"))) %>%
   ggplot(aes(x=celltype, y=mean, fill=celltype)) +
     geom_bar(stat = "identity", colour = "black") +
     geom_errorbar(aes(x=celltype, ymin=(mean - sem), ymax=(mean + sem), width=0.4)) +
@@ -393,7 +424,11 @@ plot_df %>%
     theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     labs(x = "Cell Type", y = "Percentage of Cells Carrying HIV (%)") +
-    theme(text = element_text(size = 14)) 
+    theme(text = element_text(size = 16)) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+    scale_fill_manual(values = c("#e69e00", "#019e73", "#f0e442", "#0072b1"))
 
 kruskal.test(proportion_hiv_positive ~ celltype, data = plot_df)
+
+ggsave("FinalFigures/MNPProportion.svg")
 ```
